@@ -1,0 +1,134 @@
+{
+  "info": {
+    "_postman_id": "9dff366b-d3fa-43d0-bcd6-auraengine1801",
+    "name": "Aura Engine — Inventory & Analytics",
+    "description": "QA collection for the 50,000-record inventory query engine, aggregation pipeline, and Zod business validation.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api", "type": "string" },
+    { "key": "productId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "1. API Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] },
+        "description": "Confirms that both the API process and MongoDB connection are available."
+      },
+      "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));", "pm.test('Database is connected', () => pm.expect(pm.response.json().data.database).to.eql('connected'));"], "type": "text/javascript" } }]
+    },
+    {
+      "name": "2. Inventory — 50-record Page",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/inventory?page=1&limit=50&sort=-lastUpdated",
+          "host": ["{{baseUrl}}"],
+          "path": ["inventory"],
+          "query": [
+            { "key": "page", "value": "1" },
+            { "key": "limit", "value": "50" },
+            { "key": "sort", "value": "-lastUpdated" }
+          ]
+        },
+        "description": "Proves that the client receives at most 50 records plus pagination metadata."
+      },
+      "event": [{ "listen": "test", "script": { "exec": ["const body = pm.response.json();", "pm.test('Status is 200', () => pm.response.to.have.status(200));", "pm.test('No more than 50 records returned', () => pm.expect(body.data.records.length).to.be.at.most(50));", "pm.test('Pagination metadata exists', () => pm.expect(body.data.pagination).to.have.all.keys('totalRecords','totalPages','currentPage','pageSize','hasNextPage','hasPreviousPage'));"], "type": "text/javascript" } }]
+    },
+    {
+      "name": "3. Inventory — Laptop Search (Demo)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/inventory?search=laptop&limit=5&sort=-price",
+          "host": ["{{baseUrl}}"],
+          "path": ["inventory"],
+          "query": [
+            { "key": "search", "value": "laptop" },
+            { "key": "limit", "value": "5" },
+            { "key": "sort", "value": "-price" }
+          ]
+        },
+        "description": "Required presentation query: indexed server-side search with a five-record result window."
+      },
+      "event": [{ "listen": "test", "script": { "exec": ["const body = pm.response.json();", "pm.test('Status is 200', () => pm.response.to.have.status(200));", "pm.test('Maximum five records', () => pm.expect(body.data.records.length).to.be.at.most(5));", "pm.test('Server query timing is included', () => pm.expect(body.data.queryTimeMs).to.be.a('number'));"], "type": "text/javascript" } }]
+    },
+    {
+      "name": "4. Analytics — Aggregation Pipeline",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/analytics", "host": ["{{baseUrl}}"], "path": ["analytics"] },
+        "description": "Runs the MongoDB match/group/project aggregation used by the dashboard charts."
+      },
+      "event": [{ "listen": "test", "script": { "exec": ["const body = pm.response.json();", "pm.test('Status is 200', () => pm.response.to.have.status(200));", "pm.test('Summary and category analytics exist', () => { pm.expect(body.data.summary).to.be.an('object'); pm.expect(body.data.categories).to.be.an('array'); });", "pm.test('Warm response target is below 500 ms', () => pm.expect(pm.response.responseTime).to.be.below(500));"], "type": "text/javascript" } }]
+    },
+    {
+      "name": "5. Create Product — Valid",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"productName\": \"Demo Rugged Laptop\",\n  \"sku\": \"AUR-DEMO-{{$timestamp}}\",\n  \"category\": \"computers\",\n  \"price\": 1299.99,\n  \"cost\": 840,\n  \"stockQuantity\": 75,\n  \"reorderLevel\": 20\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/inventory", "host": ["{{baseUrl}}"], "path": ["inventory"] },
+        "description": "Creates one valid demo product and stores its identifier for the update/delete requests."
+      },
+      "event": [{ "listen": "test", "script": { "exec": ["const body = pm.response.json();", "pm.test('Status is 201', () => pm.response.to.have.status(201));", "if (body.success) pm.collectionVariables.set('productId', body.data.product.id);"], "type": "text/javascript" } }]
+    },
+    {
+      "name": "6. Validation — Price Below Cost (Required Demo)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"productName\": \"Invalid Margin Product\",\n  \"sku\": \"AUR-INVALID-PRICE\",\n  \"category\": \"electronics\",\n  \"price\": 40,\n  \"cost\": 75,\n  \"stockQuantity\": 10,\n  \"reorderLevel\": 5\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/inventory", "host": ["{{baseUrl}}"], "path": ["inventory"] },
+        "description": "Must return 400 because the selling price is below cost."
+      },
+      "event": [{ "listen": "test", "script": { "exec": ["const body = pm.response.json();", "pm.test('Status is 400 Bad Request', () => pm.response.to.have.status(400));", "pm.test('Standard validation error returned', () => pm.expect(body.error.code).to.eql('VALIDATION_ERROR'));"], "type": "text/javascript" } }]
+    },
+    {
+      "name": "7. Validation — Negative Stock",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"productName\": \"Invalid Stock Product\",\n  \"sku\": \"AUR-INVALID-STOCK\",\n  \"category\": \"office\",\n  \"price\": 125,\n  \"cost\": 80,\n  \"stockQuantity\": -1,\n  \"reorderLevel\": 5\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/inventory", "host": ["{{baseUrl}}"], "path": ["inventory"] },
+        "description": "Must return 400 because stock cannot be negative."
+      },
+      "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status is 400 Bad Request', () => pm.response.to.have.status(400));"], "type": "text/javascript" } }]
+    },
+    {
+      "name": "8. Update Demo Product",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"price\": 1349.99,\n  \"stockQuantity\": 68\n}" },
+        "url": { "raw": "{{baseUrl}}/inventory/{{productId}}", "host": ["{{baseUrl}}"], "path": ["inventory", "{{productId}}"] }
+      },
+      "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));"], "type": "text/javascript" } }]
+    },
+    {
+      "name": "9. Delete Demo Product",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/inventory/{{productId}}", "host": ["{{baseUrl}}"], "path": ["inventory", "{{productId}}"] },
+        "description": "Cleans up the product created by request 5."
+      },
+      "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));"], "type": "text/javascript" } }]
+    }
+  ]
+}

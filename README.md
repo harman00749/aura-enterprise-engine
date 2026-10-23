@@ -186,4 +186,3 @@ Recommended 3–5 minute flow:
 - No known npm vulnerabilities at verification time
 
 AI-assisted architectural decisions and human verification checks are transparently documented in [Prompts.md](Prompts.md).
-
